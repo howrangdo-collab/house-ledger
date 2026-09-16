@@ -150,7 +150,8 @@ export function StatementImport({ onClose }: { onClose: () => void }) {
         <input
           ref={fileRef}
           type="file"
-          accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          // 위와 같은 이유로 accept를 걸지 않는다. 형식이 맞지 않으면
+          // parseStatement가 무엇이 잘못됐는지 알려준다.
           style={{ display: "none" }}
           onChange={(e) => onPick(e.target.files?.[0])}
         />

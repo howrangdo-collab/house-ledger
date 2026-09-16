@@ -71,7 +71,8 @@ export function SettingsView() {
         <input
           ref={importRef}
           type="file"
-          accept="application/json,.json"
+          // accept를 좁히면 iOS '파일' 앱에서 JSON이 회색으로 표시돼 고를 수 없는
+          // 경우가 있다. 전부 보여주고 파일이 틀리면 메시지로 알린다.
           style={{ display: "none" }}
           onChange={(e) => doImport(e.target.files?.[0])}
         />
