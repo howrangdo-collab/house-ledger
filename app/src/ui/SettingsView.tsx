@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { db, getSetting, setSetting } from "../core/db";
+import { db } from "../core/db";
 import { daysSinceBackup, exportCsv, exportJson, importJson } from "../core/backup";
 import { currentYm } from "./format";
 
 export function SettingsView() {
-  const [apiKey, setApiKey] = useState("");
-  const [savedKey, setSavedKey] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [days, setDays] = useState<number | null | undefined>(undefined);
@@ -22,20 +20,9 @@ export function SettingsView() {
 
   useEffect(() => {
     void (async () => {
-      const k = await getSetting("apiKey");
-      if (k) {
-        setApiKey(k);
-        setSavedKey(true);
-      }
       setDays(await daysSinceBackup());
     })();
   }, []);
-
-  async function saveKey() {
-    await setSetting("apiKey", apiKey.trim());
-    setSavedKey(true);
-    setMsg("API 키를 저장했습니다.");
-  }
 
   async function doExportJson() {
     setErr(null);
@@ -99,30 +86,6 @@ export function SettingsView() {
           CSV는 PC에서 <code>tools/import_to_excel.py</code> 로 기존 엑셀 양식에 넣을 수
           있습니다.
         </div>
-      </div>
-
-      <div className="card">
-        <h2>영수증 인식</h2>
-        <div className="field">
-          <label>Anthropic API 키</label>
-          <input
-            type="password"
-            value={apiKey}
-            placeholder="sk-ant-..."
-            autoComplete="off"
-            onChange={(e) => {
-              setApiKey(e.target.value);
-              setSavedKey(false);
-            }}
-          />
-          <div className="hint">
-            console.anthropic.com 에서 발급합니다. 이 폰에만 저장되고 다른 곳으로
-            전송되지 않습니다. 키가 없어도 직접 입력·정산·백업은 모두 됩니다.
-          </div>
-        </div>
-        <button className="btn" onClick={saveKey} disabled={savedKey || !apiKey.trim()}>
-          {savedKey ? "저장됨" : "키 저장"}
-        </button>
       </div>
 
       <div className="card">

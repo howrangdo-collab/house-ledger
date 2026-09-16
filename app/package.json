@@ -10,12 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.126.0",
     "dexie": "^4.4.6",
     "dexie-react-hooks": "^4.4.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "zod": "^4.6.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

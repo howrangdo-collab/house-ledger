@@ -1,12 +1,14 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { addTransaction, db, getSetting } from "../core/db";
-import { normalizeCategory, normalizePayment } from "../core/categories";
+import { addTransaction, db, lookupMerchant } from "../core/db";
+import { normalizePayment } from "../core/categories";
+import { parsePasted } from "../core/textParse";
 import { Sheet } from "./Sheet";
 import { TxnForm, type TxnDraft } from "./TxnForm";
+import { StatementImport } from "./StatementImport";
 import { currentYm, won } from "./format";
 
-type Mode = "scan" | "quick" | "manual";
+type Mode = "paste" | "quick" | "manual" | "statement";
 
 function blankDraft(): TxnDraft {
   const now = new Date();
@@ -23,61 +25,45 @@ function blankDraft(): TxnDraft {
 }
 
 export function AddSheet({ onClose }: { onClose: () => void }) {
-  const [mode, setMode] = useState<Mode>("scan");
+  const [mode, setMode] = useState<Mode>("paste");
   const [draft, setDraft] = useState<TxnDraft>(blankDraft());
-  /** 폼이 열렸는지. 스캔/퀵에서 값을 채우면 폼 단계로 넘어간다. */
+  /** 값을 채워 폼 단계로 넘어갔는지 */
   const [staged, setStaged] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [pasted, setPasted] = useState("");
 
   const frequent = useLiveQuery(
     () => db.merchants.orderBy("count").reverse().limit(8).toArray(),
     [],
   );
 
-  async function onPick(file: File | undefined) {
-    if (!file) return;
+  /* ------------------------------------------------ 결제 알림 붙여넣기 */
+  async function applyPaste() {
     setError(null);
-    setNotice(null);
-    setBusy(true);
-    try {
-      // Anthropic SDK는 무겁고 스캔할 때만 필요하다. 첫 화면 로딩에서 빼기 위해
-      // 여기서 처음 불러온다.
-      const { scanReceipt, splitDate, ApiKeyMissing } = await import("../core/receipt");
-      const apiKey = (await getSetting("apiKey")) ?? "";
-      let r;
-      try {
-        r = await scanReceipt(file, apiKey);
-      } catch (e) {
-        if (e instanceof ApiKeyMissing) {
-          setError("설정 탭에서 API 키를 먼저 넣어주세요.");
-          return;
-        }
-        throw e;
-      }
-      const d = splitDate(r.date);
-      setDraft({
-        ...d,
-        household: draft.household,
-        description: r.merchant,
-        category: normalizeCategory(r.category),
-        payment: normalizePayment(r.payment),
-        amount: Math.round(r.total),
-      });
-      setStaged(true);
-      setNotice(
-        r.confidence === "low"
-          ? "흐릿하게 읽힌 부분이 있습니다. 금액과 상호를 확인해주세요."
-          : `${r.merchant} · ${won(r.total)}원으로 읽었습니다. 맞는지 확인해주세요.`,
-      );
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "인식에 실패했습니다.");
-    } finally {
-      setBusy(false);
-      if (fileRef.current) fileRef.current.value = "";
+    const r = parsePasted(pasted);
+    if (!r) {
+      setError("결제 내용을 찾지 못했습니다. 전체를 복사했는지 확인하거나 직접 입력해주세요.");
+      return;
     }
+    const now = new Date();
+    const rule = r.merchant ? await lookupMerchant(r.merchant) : undefined;
+    setDraft({
+      year: now.getFullYear(),
+      month: r.month ?? now.getMonth() + 1,
+      day: r.day ?? now.getDate(),
+      household: rule?.household ?? "eunji",
+      description: r.merchant,
+      category: rule?.category ?? "식비",
+      payment: normalizePayment(r.payment),
+      amount: r.amount,
+    });
+    setStaged(true);
+    setNotice(
+      r.canceled
+        ? "취소 알림으로 보입니다. 기록할 내용이 맞는지 확인해주세요."
+        : `${r.merchant || "상호 미확인"} · ${won(r.amount)}원으로 읽었습니다.`,
+    );
   }
 
   async function save() {
@@ -94,6 +80,18 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
     onClose();
   }
 
+  function reset() {
+    setStaged(false);
+    setNotice(null);
+    setError(null);
+    setPasted("");
+    setDraft(blankDraft());
+  }
+
+  /* ------------------------------------------------------------ 카드 내역 */
+  if (mode === "statement") return <StatementImport onClose={onClose} />;
+
+  /* --------------------------------------------------------------- 입력 폼 */
   if (staged || mode === "manual") {
     return (
       <Sheet title="항목 추가" onClose={onClose}>
@@ -106,10 +104,8 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
           className="btn ghost"
           style={{ marginTop: 8 }}
           onClick={() => {
-            setStaged(false);
-            setNotice(null);
-            setDraft(blankDraft());
-            setMode("scan");
+            reset();
+            setMode("paste");
           }}
         >
           취소
@@ -118,11 +114,12 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
     );
   }
 
+  /* ----------------------------------------------------------- 모드 선택 */
   return (
     <Sheet title="항목 추가" onClose={onClose}>
       <div className="chips" style={{ marginBottom: 16 }}>
-        <button className={`chip ${mode === "scan" ? "on" : ""}`} onClick={() => setMode("scan")}>
-          영수증 스캔
+        <button className={`chip ${mode === "paste" ? "on" : ""}`} onClick={() => setMode("paste")}>
+          알림 붙여넣기
         </button>
         <button className={`chip ${mode === "quick" ? "on" : ""}`} onClick={() => setMode("quick")}>
           자주 가는 곳
@@ -130,30 +127,35 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
         <button className="chip" onClick={() => setMode("manual")}>
           직접 입력
         </button>
+        <button className="chip" onClick={() => setMode("statement")}>
+          카드 내역 파일
+        </button>
       </div>
 
-      {mode === "scan" && (
+      {mode === "paste" && (
         <>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            style={{ display: "none" }}
-            onChange={(e) => onPick(e.target.files?.[0])}
-          />
-          <button className="btn" onClick={() => fileRef.current?.click()} disabled={busy}>
-            {busy ? (
-              <>
-                <span className="spinner" /> 영수증 읽는 중…
-              </>
-            ) : (
-              "카메라로 영수증 찍기"
-            )}
+          <div className="field">
+            <label>결제 알림이나 영수증 글자를 붙여넣으세요</label>
+            <textarea
+              value={pasted}
+              onChange={(e) => {
+                setPasted(e.target.value);
+                setError(null);
+              }}
+              rows={5}
+              placeholder={"카드 앱 푸시 알림이나 문자를 길게 눌러 복사한 뒤\n여기에 붙여넣으세요."}
+              style={{ resize: "none", lineHeight: 1.5 }}
+            />
+          </div>
+          <button className="btn" onClick={applyPaste} disabled={!pasted.trim()}>
+            읽어오기
           </button>
           <div className="hint">
-            영수증 전체가 화면에 들어오게 찍으면 상호·금액·날짜를 자동으로 읽습니다.
-            읽은 내용은 저장 전에 확인할 수 있습니다.
+            상호·금액·날짜를 자동으로 뽑아냅니다. <strong>비용이 들지 않습니다.</strong>
+            <br />
+            영수증은 사진을 찍은 뒤 <strong>사진 앱에서 글자를 길게 눌러 전체 선택 →
+            복사</strong> 하면 됩니다. 아이폰이 기기 안에서 글자를 읽어주므로 사진이
+            밖으로 나가지 않습니다.
           </div>
           {error && <div className="err">{error}</div>}
         </>
@@ -194,6 +196,7 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
           </div>
         </>
       )}
+
     </Sheet>
   );
 }
