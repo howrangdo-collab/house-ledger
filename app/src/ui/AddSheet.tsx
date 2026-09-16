@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { addTransaction, db, lookupMerchant } from "../core/db";
-import { normalizePayment } from "../core/categories";
+import { guessCategory, normalizePayment } from "../core/categories";
 import { parsePasted } from "../core/textParse";
 import { Sheet } from "./Sheet";
 import { TxnForm, type TxnDraft } from "./TxnForm";
@@ -54,7 +54,7 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
       day: r.day ?? now.getDate(),
       household: rule?.household ?? "eunji",
       description: r.merchant,
-      category: rule?.category ?? "식비",
+      category: rule?.category ?? guessCategory(r.merchant),
       payment: normalizePayment(r.payment),
       amount: r.amount,
     });

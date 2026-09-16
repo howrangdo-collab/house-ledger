@@ -21,7 +21,9 @@ export function LedgerView({ year, month }: { year: number; month: number }) {
       if (!map.has(d)) map.set(d, []);
       map.get(d)!.push(t);
     }
-    return [...map.entries()].sort((a, b) => b[0] - a[0]);
+    // 1일이 위, 31일이 아래. 한 달 동안 무엇을 썼는지 시간 순서대로 읽히게 한다
+    // (엑셀 장부도 위에서 아래로 날짜순이었다).
+    return [...map.entries()].sort((a, b) => a[0] - b[0]);
   }, [txns, filter]);
 
   const total = (txns ?? [])

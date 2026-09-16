@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { db, lookupMerchant } from "../core/db";
 import { rebuildMerchants } from "../core/backup";
 import { HOUSEHOLDS, type HouseholdKey } from "../core/settlement";
-import { CATEGORIES, colorOf } from "../core/categories";
+import { CATEGORIES, colorOf, guessCategory } from "../core/categories";
 import {
   parseStatement,
   StatementError,
@@ -55,13 +55,17 @@ export function StatementImport({ onClose }: { onClose: () => void }) {
           ...r,
           // 범주·결제수단은 지난 기록에서 가져오되, 세대는 사용자가 고른 값을 따른다.
           // 이 파일은 특정 카드의 내역이므로 "이 카드는 누구네 것"이 규칙보다 우선이다.
-          category: rule?.category ?? "기타",
+          category: rule?.category ?? guessCategory(r.merchant),
           household,
           payment: rule?.payment ?? "신용카드",
           duplicate,
           include: r.include && !duplicate,
         });
       }
+
+      // 기록 화면과 같은 순서로 보여준다 — 날짜가 이른 것부터.
+      // 카드사 파일은 최신순으로 오는 경우도 있어 그대로 두면 화면마다 순서가 다르다.
+      enriched.sort((a, b) => a.year - b.year || a.month - b.month || a.day - b.day);
 
       setRows(enriched);
       setColumns(parsed.columns);
