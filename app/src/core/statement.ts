@@ -126,8 +126,15 @@ function findColumn(header: string[], candidates: readonly string[]): number {
   return -1;
 }
 
-/** 날짜 문자열을 연/월/일로. 다양한 형식을 받는다. */
-function parseDate(raw: string, fallbackYear: number): { y: number; m: number; d: number } | null {
+/**
+ * 날짜 문자열을 연/월/일로. 다양한 형식을 받는다.
+ *
+ * @param today 연도가 없는 날짜의 연도를 추정하는 기준
+ */
+function parseDate(
+  raw: string,
+  today: { year: number; month: number },
+): { y: number; m: number; d: number } | null {
   const s = String(raw ?? "").trim();
   if (!s) return null;
 
@@ -137,7 +144,13 @@ function parseDate(raw: string, fallbackYear: number): { y: number; m: number; d
 
   // 09/16 · 09.16 (연도 없음)
   m = s.match(/(?<!\d)(\d{1,2})[-./](\d{1,2})(?!\d)/);
-  if (m) return { y: fallbackYear, m: +m[1], d: +m[2] };
+  if (m) {
+    const month = +m[1];
+    // 1월에 "12/28"을 만나면 지난해 12월이다. 올해로 잡으면 11개월 뒤가 된다.
+    // 카드 내역은 과거 기록이므로, 오늘보다 한참 뒤 달이면 지난해로 본다.
+    const year = month > today.month + 1 ? today.year - 1 : today.year;
+    return { y: year, m: month, d: +m[2] };
+  }
 
   return null;
 }
@@ -156,8 +169,10 @@ function parseAmount(raw: string): number {
  */
 export async function parseStatement(
   file: File,
-  defaults: { household: HouseholdKey; payment: string; year: number },
+  defaults: { household: HouseholdKey; payment: string; year: number; month?: number },
 ): Promise<ParseResult> {
+  // 연도가 없는 날짜를 해석할 기준. 호출부가 월을 주지 않으면 오늘 기준.
+  const today = { year: defaults.year, month: defaults.month ?? new Date().getMonth() + 1 };
   const grid = await readGrid(file);
   if (!grid.length) throw new StatementError("파일이 비어 있습니다.");
 
@@ -196,7 +211,7 @@ export async function parseStatement(
     if (!r || !r.length) continue;
 
     const amount = parseAmount(r[cols.amount]);
-    const date = parseDate(r[cols.date], defaults.year);
+    const date = parseDate(r[cols.date], today);
     const merchant = String(r[cols.merchant] ?? "").trim();
 
     // 합계 행이나 빈 행

@@ -8,7 +8,9 @@
 import { db, getSetting, merchantKey, setSetting, type MerchantRule } from "./db";
 import type { Adjustment, Transaction } from "./settlement";
 
-const LAST_BACKUP = "lastBackupAt";
+/** 마지막 백업 시각을 담는 설정 키. App이 라이브 쿼리로 감시한다. */
+export const LAST_BACKUP_KEY = "lastBackupAt";
+const LAST_BACKUP = LAST_BACKUP_KEY;
 
 export interface BackupFile {
   app: "mageum";
@@ -28,12 +30,33 @@ export async function buildBackup(): Promise<BackupFile> {
   };
 }
 
-function download(filename: string, content: string, mime: string) {
-  const blob = new Blob([content], { type: `${mime};charset=utf-8` });
-  const url = URL.createObjectURL(blob);
+/**
+ * 파일을 사용자에게 건넨다.
+ *
+ * 홈 화면에 설치한 iOS PWA에서는 `<a download>` 방식이 조용히 무시되는 경우가
+ * 있다. 백업은 데이터를 지킬 유일한 수단이라 실패하면 안 되므로, 아이폰에서
+ * 확실히 동작하는 **공유 시트**(파일에 저장/메일/메시지)를 먼저 시도한다.
+ */
+async function deliver(filename: string, content: string, mime: string) {
+  const type = `${mime};charset=utf-8`;
+  const file = new File([content], filename, { type });
+
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: filename });
+      return;
+    } catch (e) {
+      // 사용자가 공유 시트를 닫은 것이면 다운로드로 되풀이하지 않는다
+      if (e instanceof DOMException && e.name === "AbortError") return;
+      // 그 밖의 실패는 아래 다운로드로 넘어간다
+    }
+  }
+
+  const url = URL.createObjectURL(new Blob([content], { type }));
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  a.rel = "noopener";
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -45,7 +68,7 @@ const stamp = () => new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
 export async function exportJson() {
   const data = await buildBackup();
-  download(`가계부_백업_${stamp()}.json`, JSON.stringify(data, null, 1), "application/json");
+  await deliver(`가계부_백업_${stamp()}.json`, JSON.stringify(data, null, 1), "application/json");
   await setSetting(LAST_BACKUP, new Date().toISOString());
   return data.transactions.length;
 }
@@ -77,7 +100,7 @@ export async function exportCsv(year: number, month?: number) {
 
   const suffix = month ? `${year}년${month}월` : `${year}년`;
   // BOM: 엑셀이 UTF-8 CSV의 한글을 깨뜨리지 않게 한다
-  download(`가계부_${suffix}.csv`, "﻿" + [header, ...body].join("\n"), "text/csv");
+  await deliver(`가계부_${suffix}.csv`, "﻿" + [header, ...body].join("\n"), "text/csv");
   return rows.length;
 }
 
@@ -141,8 +164,8 @@ export async function importJson(file: File): Promise<{ added: number; skipped: 
 const signature = (t: Transaction) =>
   `${t.year}|${t.month}|${t.day}|${t.household}|${t.description}|${t.amount}`;
 
-/** 전체 거래를 훑어 상호명 규칙을 다시 만든다. */
-async function rebuildMerchants() {
+/** 전체 거래를 훑어 상호명 규칙을 다시 만든다. 여러 건을 한꺼번에 넣은 뒤 호출한다. */
+export async function rebuildMerchants() {
   const rows = await db.transactions.toArray();
   const tally = new Map<string, MerchantRule>();
 

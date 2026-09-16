@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "./core/db";
-import { daysSinceBackup, exportJson } from "./core/backup";
+import { exportJson, LAST_BACKUP_KEY } from "./core/backup";
 import { SettlementView } from "./ui/SettlementView";
 import { LedgerView } from "./ui/LedgerView";
 import { SettingsView } from "./ui/SettingsView";
@@ -17,8 +17,6 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("settle");
   const [{ year, month }, setYm] = useState(currentYm);
   const [adding, setAdding] = useState(false);
-  const [nag, setNag] = useState(false);
-
   /**
    * 기록이 하나도 없으면 복원 안내를 띄운다 (첫 실행 또는 새 기기).
    * 설정에서 복원하면 이 값이 바로 따라 바뀌도록 라이브 쿼리로 본다.
@@ -27,12 +25,16 @@ export default function App() {
   const ready = count !== undefined;
   const fresh = count === 0;
 
-  useEffect(() => {
-    void (async () => {
-      const d = await daysSinceBackup();
-      setNag(d === null || d >= BACKUP_NAG_DAYS);
-    })();
-  }, []);
+  /**
+   * 백업 경고도 라이브 쿼리로 본다. 설정 탭에서 백업해도 배너가 바로 사라져야
+   * 하는데, 한 번만 계산하면 그 화면을 다시 그릴 때까지 남아 있는다.
+   */
+  const lastBackup = useLiveQuery(() => db.settings.get(LAST_BACKUP_KEY), []);
+  const nag =
+    lastBackup === undefined
+      ? false // 아직 읽는 중
+      : !lastBackup?.value ||
+        Date.now() - new Date(lastBackup.value).getTime() >= BACKUP_NAG_DAYS * 86_400_000;
 
   if (!ready) {
     return (
@@ -78,14 +80,7 @@ export default function App() {
         <div className="page" style={{ paddingBottom: 0 }}>
           <div className="banner">
             <span>백업한 지 오래됐습니다. 기록은 이 폰 안에만 있습니다.</span>
-            <button
-              onClick={async () => {
-                await exportJson();
-                setNag(false);
-              }}
-            >
-              지금 백업
-            </button>
+            <button onClick={() => void exportJson()}>지금 백업</button>
           </div>
         </div>
       )}

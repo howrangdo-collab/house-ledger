@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { db, lookupMerchant } from "../core/db";
+import { rebuildMerchants } from "../core/backup";
 import { HOUSEHOLDS, type HouseholdKey } from "../core/settlement";
 import { CATEGORIES, colorOf } from "../core/categories";
 import {
@@ -31,19 +32,25 @@ export function StatementImport({ onClose }: { onClose: () => void }) {
     setError(null);
     setBusy(true);
     try {
-      const { year } = currentYm();
-      const parsed = await parseStatement(file, { household, payment: "신용카드", year });
+      const { year, month } = currentYm();
+      const parsed = await parseStatement(file, { household, payment: "신용카드", year, month });
 
-      // 상호명 규칙으로 범주를 미리 채우고, 이미 있는 거래는 중복으로 표시한다
+      // 상호명 규칙으로 범주를 미리 채우고, 이미 있는 거래는 중복으로 표시한다.
+      // 세대를 키에 넣어야 한다 — 두 세대가 같은 날 같은 가게에서 같은 금액을 쓰는 일이
+      // 실제로 있고(농민식자재처럼 양쪽이 다 가는 곳), 세대를 빼면 한쪽이 누락된다.
       const existing = await db.transactions.toArray();
       const have = new Set(
-        existing.map((t) => `${t.year}|${t.month}|${t.day}|${t.description}|${t.amount}`),
+        existing.map(
+          (t) => `${t.year}|${t.month}|${t.day}|${t.household}|${t.description}|${t.amount}`,
+        ),
       );
 
       const enriched: StatementRow[] = [];
       for (const r of parsed.rows) {
         const rule = await lookupMerchant(r.merchant);
-        const duplicate = have.has(`${r.year}|${r.month}|${r.day}|${r.merchant}|${r.amount}`);
+        const duplicate = have.has(
+          `${r.year}|${r.month}|${r.day}|${household}|${r.merchant}|${r.amount}`,
+        );
         enriched.push({
           ...r,
           // 범주·결제수단은 지난 기록에서 가져오되, 세대는 사용자가 고른 값을 따른다.
@@ -82,31 +89,10 @@ export function StatementImport({ onClose }: { onClose: () => void }) {
     if (!picked.length) return;
     await db.transactions.bulkAdd(picked.map(toTransaction));
 
-    // 상호명 규칙도 갱신해 다음부터 자동 분류되게 한다
-    for (const r of picked) {
-      const key = r.merchant.trim().toLowerCase().replace(/\s+/g, "");
-      if (!key) continue;
-      const existing = await db.merchants.where("key").equals(key).first();
-      if (existing) {
-        await db.merchants.update(existing.id!, {
-          category: r.category,
-          household: r.household,
-          payment: r.payment,
-          count: existing.count + 1,
-          lastUsed: Date.now(),
-        });
-      } else {
-        await db.merchants.add({
-          key,
-          merchant: r.merchant.trim(),
-          category: r.category,
-          household: r.household,
-          payment: r.payment,
-          count: 1,
-          lastUsed: Date.now(),
-        });
-      }
-    }
+    // 상호명 규칙은 한 번에 다시 세운다. 건마다 DB를 오가면 수십~수백 건짜리
+    // 카드 내역에서 눈에 띄게 느려진다.
+    await rebuildMerchants();
+
     setDone(picked.length);
   }
 
