@@ -1,0 +1,29 @@
+# 실제 가계부 내역. GitHub Pages 무료 등급은 공개 저장소만 지원하므로
+# 이 파일들이 올라가면 상호명·날짜·금액이 그대로 인터넷에 공개된다.
+# tools/extract.py 로 언제든 다시 만들 수 있다.
+data/
+*.xlsx
+*.csv
+
+# 백업/복원 파일
+가계부_백업_*.json
+가계부_복원*.json
+
+# 설계서. 실제 월별 합계·누적 정산액 같은 금액이 근거로 적혀 있어
+# 공개 저장소에 올리지 않는다. 이 폴더에는 그대로 남는다.
+CLAUDE.md
+
+node_modules
+dist
+*.local
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+logs
+*.log
+npm-debug.log*
+
+# 추출 결과 로그 (건수·로컬 경로)
+tools/extract_report.txt

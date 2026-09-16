@@ -1,0 +1,17 @@
+{
+  "name": "마감 — 2세대 가계부",
+  "short_name": "마감",
+  "description": "두 세대가 함께 쓰는 생활비를 40:60으로 나눠 정산하는 가계부",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f5f4",
+  "theme_color": "#3d6b5c",
+  "lang": "ko",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

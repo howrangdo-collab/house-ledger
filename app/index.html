@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit=cover: 아이폰 노치/홈바 영역까지 배경을 채운다 -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover"
+    />
+    <title>마감 — 2세대 가계부</title>
+    <meta name="description" content="두 세대가 함께 쓰는 생활비를 40:60으로 나눠 정산하는 가계부" />
+
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="./icon-192.png" />
+    <!-- iOS는 manifest의 icons를 쓰지 않는다. 홈 화면 아이콘은 이 태그로만 지정된다 -->
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="마감" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f5f4" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1a1918" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
