@@ -47,6 +47,37 @@ TEL: 02-1234-5678
     want: { amount: 26800, merchant: "농민식자재", month: 9, day: 2 },
   },
   {
+    // "과세" 두 글자로 줄을 통째로 버리면 진짜 총액인 «과세 합계»까지 놓친다.
+    name: "과세 합계가 총액인 영수증",
+    text: `행복마트
+사업자 222-33-44444
+
+2026-09-11
+
+품목A           5,000
+품목B           7,000
+과세 합계      12,000
+신용카드       12,000`,
+    want: { amount: 12000, merchant: "행복마트", month: 9, day: 11 },
+  },
+  {
+    // 소계는 부분합이라 총액이 아니다.
+    name: "소계와 합계가 함께 있는 영수증",
+    text: `커피나무
+사업자 333-44-55555
+
+2026-09-12
+
+아메리카노      4,500
+케이크          6,500
+소계           11,000
+할인            1,000
+합계           10,000
+받은금액       20,000
+거스름돈       10,000`,
+    want: { amount: 10000, merchant: "커피나무", month: 9, day: 12 },
+  },
+  {
     name: "금액이 다음 줄에 오는 형태",
     text: `브런즈
 2026-09-09
@@ -97,6 +128,6 @@ if (parseReceiptText("안녕하세요\n오늘 날씨가 좋네요") === null) {
   fails.push("금액 없는 텍스트인데 파싱됨");
 }
 
-console.log(`\n통과 ${pass}/${CASES.length + 1}`);
+console.log(`\n통과 ${pass}/${pass + fails.length}`);
 for (const f of fails) console.log("FAIL " + f);
 if (fails.length) process.exitCode = 1;

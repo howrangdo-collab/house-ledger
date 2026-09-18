@@ -11,13 +11,21 @@
 import type { HouseholdKey, Transaction } from "./settlement";
 
 /** 컬럼 이름 후보. 카드사·은행마다 표현이 다르다. */
+/**
+ * 컬럼 이름 후보. **배열 순서가 곧 우선순위다** — 열 위치가 아니라 이 순서로 고른다.
+ *
+ * 카드 내역에는 `이용일`(실제로 쓴 날)과 `결제일`(카드사가 청구하는 날, 대개 다음
+ * 달)이 함께 들어 있다. 열 순서대로 먼저 맞는 것을 쓰면 `결제일`이 왼쪽에 있는
+ * 파일에서 한 달 뒤로 기록돼 정산이 통째로 어긋난다. 그래서 실제 사용일을 앞에,
+ * 청구 성격의 이름을 뒤에 둔다. 금액도 같은 이유로 `청구금액`이 뒤다.
+ */
 const HEADERS = {
-  date: ["이용일", "이용일자", "거래일자", "승인일자", "매출일자", "사용일자",
-         "거래일시", "이용일시", "결제일", "일자", "날짜"],
+  date: ["이용일", "이용일자", "이용일시", "사용일자", "거래일자", "거래일시",
+         "승인일자", "매출일자", "일자", "날짜", "결제일"],
   merchant: ["가맹점명", "가맹점", "이용하신곳", "이용가맹점", "이용내역", "상호",
              "사용처", "내용", "적요", "가맹점명(사업자번호)", "거래내용"],
-  amount: ["이용금액", "승인금액", "거래금액", "결제금액", "사용금액", "출금액",
-           "청구금액", "합계금액", "금액", "원화금액"],
+  amount: ["이용금액", "승인금액", "거래금액", "사용금액", "원화금액", "결제금액",
+           "출금액", "합계금액", "청구금액", "금액"],
   kind: ["구분", "거래구분", "취소여부", "승인구분", "상태"],
 } as const;
 
@@ -114,16 +122,29 @@ const clean = (s: unknown) => String(s ?? "").replace(/\s+/g, "").trim();
 
 /** 컬럼 이름 후보와 맞는 열 번호를 찾는다 */
 function findColumn(header: string[], candidates: readonly string[]): number {
-  // 정확히 일치하는 것 우선
-  for (let i = 0; i < header.length; i++) {
-    if (candidates.includes(clean(header[i]))) return i;
+  const cells = header.map((h) => clean(h));
+  // 후보 순서대로 본다 — 어느 열에 있든 "이용일"이 "결제일"을 이긴다.
+  for (const c of candidates) {
+    const exact = cells.indexOf(c);
+    if (exact >= 0) return exact;
   }
-  // 포함 관계 («이용금액(원)» 같은 변형)
-  for (let i = 0; i < header.length; i++) {
-    const h = clean(header[i]);
-    if (h && candidates.some((c) => h.includes(c))) return i;
+  // 포함 관계 («이용금액(원)» 같은 변형). 이것도 후보 순서를 지킨다.
+  for (const c of candidates) {
+    const loose = cells.findIndex((h) => h && h.includes(c));
+    if (loose >= 0) return loose;
   }
   return -1;
+}
+
+/**
+ * 연도가 없는 날짜의 연도를 정한다.
+ *
+ * 1월에 "12/28"을 만나면 지난해 12월이다. 올해로 잡으면 11개월 뒤가 된다.
+ * 기록은 과거의 것이므로, 오늘보다 한 달 이상 앞선 달이면 지난해로 본다.
+ * 카드 내역 파일과 알림 붙여넣기가 **같은 규칙**을 쓰도록 여기에 한 벌만 둔다.
+ */
+export function resolveYear(month: number, today: { year: number; month: number }): number {
+  return month > today.month + 1 ? today.year - 1 : today.year;
 }
 
 /**
@@ -146,20 +167,22 @@ function parseDate(
   m = s.match(/(?<!\d)(\d{1,2})[-./](\d{1,2})(?!\d)/);
   if (m) {
     const month = +m[1];
-    // 1월에 "12/28"을 만나면 지난해 12월이다. 올해로 잡으면 11개월 뒤가 된다.
-    // 카드 내역은 과거 기록이므로, 오늘보다 한참 뒤 달이면 지난해로 본다.
-    const year = month > today.month + 1 ? today.year - 1 : today.year;
-    return { y: year, m: month, d: +m[2] };
+    return { y: resolveYear(month, today), m: month, d: +m[2] };
   }
 
   return null;
 }
 
 function parseAmount(raw: string): number {
-  const s = String(raw ?? "").replace(/[^\d.-]/g, "");
+  const text = String(raw ?? "").trim();
+  // 회계 표기의 괄호는 음수다: "(5,000)" = -5,000. 그대로 두면 취소분이
+  // 양수 결제로 들어가 이중 계상된다.
+  const negated = /^\(.*\)$/.test(text);
+  const s = text.replace(/[^\d.-]/g, "");
   if (!s) return 0;
   const v = Math.round(parseFloat(s));
-  return Number.isFinite(v) ? v : 0;
+  if (!Number.isFinite(v)) return 0;
+  return negated ? -Math.abs(v) : v;
 }
 
 /**
@@ -220,8 +243,9 @@ export async function parseStatement(
       continue;
     }
 
+    // 구분 열이 없는 파일도 있다. 그런 카드사는 가맹점명 쪽에 "…취소"를 붙인다.
     const kind = String(kindIdx >= 0 ? r[kindIdx] : "");
-    const canceled = /취소|환불/.test(kind) || amount < 0;
+    const canceled = /취소|환불/.test(kind) || /취소|환불/.test(merchant) || amount < 0;
 
     rows.push({
       include: !canceled,

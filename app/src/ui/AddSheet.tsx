@@ -3,6 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { addTransaction, db, lookupMerchant } from "../core/db";
 import { guessCategory, normalizePayment } from "../core/categories";
 import { parsePasted } from "../core/textParse";
+import { resolveYear } from "../core/statement";
 import { Sheet } from "./Sheet";
 import { TxnForm, type TxnDraft } from "./TxnForm";
 import { StatementImport } from "./StatementImport";
@@ -47,10 +48,14 @@ export function AddSheet({ onClose }: { onClose: () => void }) {
       return;
     }
     const now = new Date();
+    const today = { year: now.getFullYear(), month: now.getMonth() + 1 };
+    const month = r.month ?? today.month;
+    // 1월에 12월 알림을 붙여넣으면 지난해 12월이다. 오늘 연도를 그대로 쓰면
+    // 1년 뒤로 기록돼 누적 정산이 어긋난다 (카드 내역 파일과 같은 규칙).
     const rule = r.merchant ? await lookupMerchant(r.merchant) : undefined;
     setDraft({
-      year: now.getFullYear(),
-      month: r.month ?? now.getMonth() + 1,
+      year: resolveYear(month, today),
+      month,
       day: r.day ?? now.getDate(),
       household: rule?.household ?? "eunji",
       description: r.merchant,

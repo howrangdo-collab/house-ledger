@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CATEGORIES, PAYMENTS } from "../core/categories";
 import { HOUSEHOLDS, type HouseholdKey, type Transaction } from "../core/settlement";
 import { lookupMerchant } from "../core/db";
@@ -53,15 +53,36 @@ export function TxnForm({
 
   const [autoFilled, setAutoFilled] = useState<string | null>(null);
 
+  /**
+   * 최신 값을 따로 들고 있는다.
+   *
+   * 상호 칸에서 범주 버튼을 바로 누르면 blur 가 먼저 나고, 조회가 끝날 무렵엔
+   * 사용자가 이미 범주를 고른 뒤다. blur 시점의 값으로 덮어쓰면 방금 고른
+   * 범주가 되돌아간다.
+   */
+  const latest = useRef(value);
+  useEffect(() => {
+    latest.current = value;
+  }, [value]);
+
   async function onMerchantBlur() {
-    if (!learnFromMerchant || !value.description.trim()) return;
-    const rule = await lookupMerchant(value.description);
+    const before = latest.current;
+    if (!learnFromMerchant || !before.description.trim()) return;
+    const rule = await lookupMerchant(before.description);
     if (!rule) return;
+    const now = latest.current;
+    // 기다리는 사이에 상호가 또 바뀌었으면 이 결과는 낡은 것이다
+    if (now.description !== before.description) return;
+    const touched = {
+      category: now.category !== before.category,
+      household: now.household !== before.household,
+      payment: now.payment !== before.payment,
+    };
     onChange({
-      ...value,
-      category: rule.category,
-      household: rule.household,
-      payment: rule.payment,
+      ...now,
+      category: touched.category ? now.category : rule.category,
+      household: touched.household ? now.household : rule.household,
+      payment: touched.payment ? now.payment : rule.payment,
     });
     setAutoFilled(`${rule.merchant} → ${rule.category} (지난 기록에서 자동 입력)`);
   }

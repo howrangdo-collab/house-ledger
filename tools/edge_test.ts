@@ -4,7 +4,7 @@
  * 평소 잘 돌아가다가 특정 시점·특정 데이터에서만 틀리는 것들을 모아 둔다.
  */
 import { settle, type Adjustment, type Transaction } from "../app/src/core/settlement.ts";
-import { parseStatement } from "../app/src/core/statement.ts";
+import { parseStatement, resolveYear } from "../app/src/core/statement.ts";
 import { shiftMonth } from "../app/src/ui/format.ts";
 
 const results: string[] = [];
@@ -141,6 +141,16 @@ async function main() {
     check("금액 빈 행은 건너뛴다", !r.rows.some((x) => x.merchant === "빈금액"));
     check("큰 금액도 정확히 읽는다",
           r.rows.find((x) => x.merchant === "큰금액")?.amount === 12345678);
+  }
+
+  /* ------------------------- 연도 추정 (붙여넣기·카드내역 공용 규칙) */
+  {
+    // 알림 붙여넣기도 카드 내역과 같은 규칙을 써야 한다. 1월에 12월 알림을
+    // 붙여넣고 올해로 잡으면 1년 뒤로 기록돼 누적 정산이 어긋난다.
+    check("1월에 만난 12월 = 지난해", resolveYear(12, { year: 2026, month: 1 }) === 2025);
+    check("9월에 만난 9월 = 올해", resolveYear(9, { year: 2026, month: 9 }) === 2026);
+    check("9월에 만난 10월(선결제) = 올해", resolveYear(10, { year: 2026, month: 9 }) === 2026);
+    check("12월에 만난 1월 = 올해", resolveYear(1, { year: 2026, month: 12 }) === 2026);
   }
 
   /* ------------------------------------------------ 요약 */

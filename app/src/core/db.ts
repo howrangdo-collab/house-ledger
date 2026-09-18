@@ -59,6 +59,18 @@ export async function addTransaction(t: Transaction) {
   return id;
 }
 
+/**
+ * 거래를 고치면서 상호명 규칙도 함께 갱신한다.
+ *
+ * 범주를 손으로 고치는 일은 대부분 **수정 화면**에서 일어난다. 여기서 학습하지
+ * 않으면 "한 번 고치면 다음부터 자동 분류된다"가 성립하지 않아, 같은 가게를
+ * 매번 다시 고쳐야 한다.
+ */
+export async function updateTransaction(id: number, t: Transaction) {
+  await db.transactions.update(id, { ...t });
+  await learnMerchant(t);
+}
+
 async function learnMerchant(t: Transaction) {
   const k = merchantKey(t.description);
   if (!k) return;

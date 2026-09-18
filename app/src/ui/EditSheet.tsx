@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Transaction } from "../core/settlement";
-import { db } from "../core/db";
+import { updateTransaction } from "../core/db";
 import { Sheet } from "./Sheet";
 import { TxnForm, toDraft, type TxnDraft } from "./TxnForm";
 
@@ -17,7 +17,7 @@ export function EditSheet({
   const [confirming, setConfirming] = useState(false);
 
   async function save() {
-    await db.transactions.update(transaction.id!, { ...draft });
+    await updateTransaction(transaction.id!, { ...draft, description: draft.description.trim() });
     onClose();
   }
 

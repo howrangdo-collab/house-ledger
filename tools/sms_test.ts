@@ -48,6 +48,20 @@ KB국민카드 승인
     want: { amount: 8000, merchant: "두부가", month: 9, day: 14 },
   },
   {
+    name: "할부 회차가 날짜로 읽히면 안 된다",
+    sms: `[Web발신]
+삼성카드 승인 홍*동
+37,800원 3/6개월 할부
+09/15 19:04
+이마트몰`,
+    want: { amount: 37800, merchant: "이마트몰", month: 9, day: 15 },
+  },
+  {
+    name: "한 줄 형식에 할부 표기가 섞인 경우",
+    sms: `[Web발신] 현대카드 승인 홍*동 12,000원 2/3개월 할부 09/14 11:02 스타벅스`,
+    want: { amount: 12000, merchant: "스타벅스", month: 9, day: 14 },
+  },
+  {
     name: "한글 날짜",
     sms: `현대카드 승인
 23,400원 일시불
@@ -89,6 +103,22 @@ if (cancel?.canceled === true) {
   fails.push("취소 문자를 감지하지 못했다");
 }
 
+// "취소 방법 안내" 문구를 취소로 보면 안 된다
+const notice = parseSms(
+  `[Web발신]
+신한카드 승인
+5,000원
+09/15 12:00
+스타벅스
+취소는 앱에서 가능합니다`,
+);
+if (notice && notice.canceled === false) {
+  pass++;
+  console.log("OK   취소 안내 문구는 취소가 아니다");
+} else {
+  fails.push(`취소 안내 문구를 취소로 잘못 읽었다: ${JSON.stringify(notice)}`);
+}
+
 // 결제와 무관한 문자는 null
 const junk = parseSms("안녕하세요 오늘 저녁에 볼까요?");
 if (junk === null) {
@@ -98,6 +128,6 @@ if (junk === null) {
   fails.push(`결제와 무관한 문자인데 파싱됨: ${JSON.stringify(junk)}`);
 }
 
-console.log(`\n통과 ${pass}/${CASES.length + 2}`);
+console.log(`\n통과 ${pass}/${pass + fails.length}`);
 for (const f of fails) console.log("FAIL " + f);
 if (fails.length) process.exitCode = 1;

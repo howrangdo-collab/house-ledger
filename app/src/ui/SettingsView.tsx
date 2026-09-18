@@ -26,16 +26,36 @@ export function SettingsView() {
 
   async function doExportJson() {
     setErr(null);
-    const n = await exportJson();
-    setDays(0);
-    setMsg(`${n}건을 백업 파일로 내려받았습니다.`);
+    setMsg(null);
+    try {
+      // 공유 시트를 그냥 닫으면 파일이 저장되지 않는다. 그때 "백업했다"고
+      // 알리면 사용자가 백업 없이 안심하게 된다.
+      const { count, delivered } = await exportJson();
+      if (!delivered) {
+        setErr("백업을 취소했습니다. 파일이 저장되지 않았습니다.");
+        return;
+      }
+      setDays(0);
+      setMsg(`${count}건을 백업 파일로 내려받았습니다.`);
+    } catch (e) {
+      setErr(e instanceof Error ? `백업에 실패했습니다: ${e.message}` : "백업에 실패했습니다.");
+    }
   }
 
   async function doExportCsv() {
     setErr(null);
-    const { year } = currentYm();
-    const n = await exportCsv(year);
-    setMsg(`${year}년 ${n}건을 CSV로 내려받았습니다.`);
+    setMsg(null);
+    try {
+      const { year } = currentYm();
+      const { count, delivered } = await exportCsv(year);
+      if (!delivered) {
+        setErr("내보내기를 취소했습니다. 파일이 저장되지 않았습니다.");
+        return;
+      }
+      setMsg(`${year}년 ${count}건을 CSV로 내려받았습니다.`);
+    } catch (e) {
+      setErr(e instanceof Error ? `내보내기에 실패했습니다: ${e.message}` : "내보내기에 실패했습니다.");
+    }
   }
 
   async function doImport(file: File | undefined) {
@@ -44,6 +64,7 @@ export function SettingsView() {
     try {
       const { added, skipped } = await importJson(file);
       setMsg(`${added}건 복원했습니다. 중복 ${skipped}건은 건너뛰었습니다.`);
+      setDays(await daysSinceBackup());
     } catch (e) {
       setErr(e instanceof Error ? e.message : "복원에 실패했습니다.");
     } finally {

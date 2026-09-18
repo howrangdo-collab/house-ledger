@@ -37,17 +37,18 @@ export async function buildBackup(): Promise<BackupFile> {
  * 있다. 백업은 데이터를 지킬 유일한 수단이라 실패하면 안 되므로, 아이폰에서
  * 확실히 동작하는 **공유 시트**(파일에 저장/메일/메시지)를 먼저 시도한다.
  */
-async function deliver(filename: string, content: string, mime: string) {
+async function deliver(filename: string, content: string, mime: string): Promise<boolean> {
   const type = `${mime};charset=utf-8`;
   const file = new File([content], filename, { type });
 
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: filename });
-      return;
+      return true;
     } catch (e) {
-      // 사용자가 공유 시트를 닫은 것이면 다운로드로 되풀이하지 않는다
-      if (e instanceof DOMException && e.name === "AbortError") return;
+      // 사용자가 공유 시트를 닫은 것이면 다운로드로 되풀이하지 않는다.
+      // **파일은 저장되지 않았다** — 호출부가 "백업함"으로 기록하면 안 된다.
+      if (e instanceof DOMException && e.name === "AbortError") return false;
       // 그 밖의 실패는 아래 다운로드로 넘어간다
     }
   }
@@ -62,22 +63,33 @@ async function deliver(filename: string, content: string, mime: string) {
   a.remove();
   // 사파리가 다운로드를 시작할 시간을 준 뒤 해제한다
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return true;
 }
 
 const stamp = () => new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
-export async function exportJson() {
+/**
+ * 백업 파일을 내보낸다.
+ *
+ * 공유 시트를 사용자가 그냥 닫으면 **파일은 어디에도 저장되지 않는다**. 그때도
+ * "백업함"으로 기록하면 경고 배너가 14일간 사라져, 백업이 없는 채로 안심하게
+ * 된다. 그래서 실제로 건네졌을 때만 시각을 남긴다.
+ */
+export async function exportJson(): Promise<{ count: number; delivered: boolean }> {
   const data = await buildBackup();
-  await deliver(`가계부_백업_${stamp()}.json`, JSON.stringify(data, null, 1), "application/json");
-  await setSetting(LAST_BACKUP, new Date().toISOString());
-  return data.transactions.length;
+  const delivered = await deliver(`가계부_백업_${stamp()}.json`, JSON.stringify(data, null, 1), "application/json");
+  if (delivered) await setSetting(LAST_BACKUP, new Date().toISOString());
+  return { count: data.transactions.length, delivered };
 }
 
 /**
  * 엑셀로 옮기기 위한 CSV. 엑셀 양식에 실제로 써넣는 것은 PC에서
  * `tools/import_to_excel.py` 가 한다 (브라우저에서는 드롭다운·서식을 지킬 수 없다).
  */
-export async function exportCsv(year: number, month?: number) {
+export async function exportCsv(
+  year: number,
+  month?: number,
+): Promise<{ count: number; delivered: boolean }> {
   let rows = await db.transactions.where("year").equals(year).toArray();
   if (month) rows = rows.filter((t) => t.month === month);
   rows.sort(
@@ -100,8 +112,8 @@ export async function exportCsv(year: number, month?: number) {
 
   const suffix = month ? `${year}년${month}월` : `${year}년`;
   // BOM: 엑셀이 UTF-8 CSV의 한글을 깨뜨리지 않게 한다
-  await deliver(`가계부_${suffix}.csv`, "﻿" + [header, ...body].join("\n"), "text/csv");
-  return rows.length;
+  const delivered = await deliver(`가계부_${suffix}.csv`, "﻿" + [header, ...body].join("\n"), "text/csv");
+  return { count: rows.length, delivered };
 }
 
 export async function importJson(file: File): Promise<{ added: number; skipped: number }> {

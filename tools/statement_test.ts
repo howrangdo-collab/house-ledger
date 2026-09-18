@@ -59,6 +59,31 @@ const CASES: Case[] = [
     expect: { count: 3, first: { month: 9, day: 10, merchant: "두부가", amount: 6000 } },
   },
   {
+    // 카드 내역에는 실제 사용일(이용일자)과 청구일(결제일)이 함께 온다.
+    // 청구일을 쓰면 한 달 뒤로 기록돼 정산이 통째로 어긋난다.
+    name: "결제일이 이용일자보다 앞 열에 있어도 이용일자를 쓴다",
+    file: csvFile(
+      "billing.csv",
+      `결제일,이용일자,가맹점명,이용금액
+2026-10-25,2026-09-16,브런즈,22640
+2026-10-25,2026-09-18,농민식자재,7760
+`,
+    ),
+    expect: { count: 2, first: { month: 9, day: 16, merchant: "브런즈", amount: 22640 } },
+  },
+  {
+    // 회계식 괄호 표기는 음수다. 양수로 읽으면 취소분이 결제로 들어간다.
+    name: "괄호로 표기한 음수는 취소로 본다",
+    file: csvFile(
+      "paren.csv",
+      `이용일자,가맹점명,이용금액
+2026-09-16,브런즈,"(22,640)"
+2026-09-17,두부가,"8,000"
+`,
+    ),
+    expect: { count: 2, first: { month: 9, day: 16, merchant: "브런즈", amount: 22640 } },
+  },
+  {
     name: "연도 없는 날짜 (09/16)",
     file: csvFile(
       "nodate.csv",
@@ -101,6 +126,38 @@ async function main() {
     }
   }
 
+  // 괄호 음수는 취소로 표시되고 기본 체크가 해제돼야 한다
+  {
+    const r = await parseStatement(
+      csvFile("paren2.csv", `이용일자,가맹점명,이용금액
+2026-09-16,브런즈,"(22,640)"
+`),
+      DEFAULTS,
+    );
+    if (r.rows[0]?.canceled === true && r.rows[0]?.include === false) {
+      pass++;
+      console.log("OK   괄호 음수 -> 취소로 표시, 체크 해제");
+    } else {
+      fails.push(`괄호 음수를 취소로 보지 않았다: ${JSON.stringify(r.rows[0])}`);
+    }
+  }
+
+  // 구분 열이 없는 파일은 가맹점명 쪽에 "취소"가 붙는다
+  {
+    const r = await parseStatement(
+      csvFile("nokind.csv", `이용일자,가맹점명,이용금액
+2026-09-16,브런즈 취소,22640
+`),
+      DEFAULTS,
+    );
+    if (r.rows[0]?.canceled === true && r.rows[0]?.include === false) {
+      pass++;
+      console.log("OK   구분 열 없이 가맹점명에 붙은 취소도 잡는다");
+    } else {
+      fails.push(`가맹점명 취소를 놓쳤다: ${JSON.stringify(r.rows[0])}`);
+    }
+  }
+
   // 알아볼 수 없는 파일은 친절한 오류를 내야 한다
   try {
     await parseStatement(csvFile("junk.csv", "가나다\n1,2,3\n"), DEFAULTS);
@@ -115,7 +172,7 @@ async function main() {
     }
   }
 
-  console.log(`\n통과 ${pass}/${CASES.length + 1}`);
+  console.log(`\n통과 ${pass}/${pass + fails.length}`);
   for (const f of fails) console.log("FAIL " + f);
   if (fails.length) process.exitCode = 1;
 

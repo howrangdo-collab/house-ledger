@@ -66,19 +66,7 @@ export function parseSms(raw: string): ParsedSms | null {
   if (!amount) return null;
 
   // --- 날짜: MM/DD 또는 MM월 DD일
-  let month: number | null = null;
-  let day: number | null = null;
-  const slash = text.match(/(?<!\d)(\d{1,2})\/(\d{1,2})(?!\d)/);
-  const korean = text.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
-  const hit = slash ?? korean;
-  if (hit) {
-    const a = +hit[1];
-    const b = +hit[2];
-    if (a >= 1 && a <= 12 && b >= 1 && b <= 31) {
-      month = a;
-      day = b;
-    }
-  }
+  const { month, day } = pickDate(text);
 
   // --- 카드사
   const issuer = ISSUERS.find((n) => text.includes(n + "카드") || text.includes(n + "체크")) ?? null;
@@ -86,7 +74,9 @@ export function parseSms(raw: string): ParsedSms | null {
   // --- 결제수단: 문자에 '체크'가 있으면 체크카드, 그 외 카드면 신용카드
   const payment = /체크/.test(text) ? "체크카드" : "신용카드";
 
-  const canceled = /(취소|환불|승인취소)/.test(text);
+  // "취소는 앱에서 가능합니다" 같은 안내 문구까지 취소로 보면 멀쩡한 결제가
+  // 취소로 표시된다. 안내 문구를 걷어낸 뒤 남는 것만 본다.
+  const canceled = /취소|환불/.test(text.replace(CANCEL_NOTE, ""));
 
   // --- 상호명: 금액·날짜·카드사·안내 문구가 아닌 줄 중 마지막 것.
   // 대부분의 카드사가 가맹점명을 맨 아래쪽에 둔다.
@@ -101,6 +91,58 @@ export function parseSms(raw: string): ParsedSms | null {
     issuer,
     canceled,
   };
+}
+
+/** 결제 취소가 아니라 "취소 방법" 안내인 문장 */
+const CANCEL_NOTE = /(취소|환불)\s*(는|를|은|이|도|문의|안내|가능|접수|방법|하려|하시|원하)[^\n]*/g;
+
+/**
+ * 날짜가 아니라 할부 회차인 "3/6" 을 가려내기 위한 **바로 붙은** 문맥.
+ *
+ * 넓게 잡으면 안 된다 — "3/6개월 할부" 다음 줄의 진짜 날짜 "09/15"까지
+ * 할부로 보고 버리게 된다. 회차 표기는 숫자에 딱 붙어 나온다.
+ */
+/**
+ * 할부 회차 표기("3/6개월")는 숫자에 단위가 바로 붙는다. 이걸로 거른다.
+ *
+ * 반대로 "할부 09/14" 처럼 **앞에** 할부가 오는 것으로는 거르지 않는다 —
+ * 한 줄로 오는 알림에서 진짜 날짜 바로 앞이 "할부"인 경우가 있다.
+ */
+const INSTALLMENT_AFTER = /^[ \t]?(개월|회차|회|차)/;
+/** 결제 알림의 날짜는 대개 시각이 뒤따른다. 후보가 여럿이면 이쪽을 믿는다. */
+const FOLLOWED_BY_TIME = /^[ \t]?\d{1,2}:\d{2}/;
+
+/**
+ * 결제 알림에서 날짜를 고른다.
+ *
+ * `3/6개월 할부` 처럼 날짜가 아닌 슬래시 표기가 섞여 있다. 먼저 나온 것을 그냥
+ * 쓰면 3월 6일로 기록돼 **정산 달이 통째로 바뀐다**. 후보마다 앞뒤 문맥을 보고
+ * 할부 회차로 보이는 것은 버린다.
+ */
+function pickDate(text: string): { month: number | null; day: number | null } {
+  const re = /(?<!\d)(\d{1,2})\/(\d{1,2})(?!\d)/g;
+  const found: { month: number; day: number; timed: boolean }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const end = m.index + m[0].length;
+    const after = text.slice(end, end + 8);
+    if (INSTALLMENT_AFTER.test(after)) continue;
+    const a = +m[1];
+    const b = +m[2];
+    if (a < 1 || a > 12 || b < 1 || b > 31) continue;
+    found.push({ month: a, day: b, timed: FOLLOWED_BY_TIME.test(after) });
+  }
+  const best = found.find((f) => f.timed) ?? found[0];
+  if (best) return { month: best.month, day: best.day };
+
+  const korean = text.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if (korean) {
+    const a = +korean[1];
+    const b = +korean[2];
+    if (a >= 1 && a <= 12 && b >= 1 && b <= 31) return { month: a, day: b };
+  }
+
+  return { month: null, day: null };
 }
 
 const NOISE = [
@@ -133,6 +175,9 @@ function tailAfterTime(text: string): string {
     const tail = m[1]
       .replace(/(누적|잔액|한도|포인트|적립|이용가능)[^\s]*\s*[0-9,]*\s*원?.*/g, "")
       .replace(/[0-9][0-9,]*\s*원/g, "")
+      .replace(/\d{1,2}\/\d{1,2}\s*개월/g, "")
+      .replace(/(일시불|할부|\d{1,2}\s*개월)/g, "")
+      .replace(/^[\s\-·|]+|[\s\-·|]+$/g, "")
       .trim();
     if (tail.length >= 2 && tail.length <= 30) return tail;
   }
@@ -169,7 +214,10 @@ const TOTAL_KEYS = [
 ];
 
 /** 총액으로 착각하기 쉬운 것들 — 이 말이 있는 줄은 금액 후보에서 뺀다. */
-const NOT_TOTAL = /(받은금액|받은돈|거스름|거스름돈|잔돈|공급가액|부가세|면세|과세|포인트|적립|잔액|할인전|정상가)/;
+// "과세"를 통째로 막으면 «과세 합계 12,000» 같은 진짜 총액 줄까지 버린다.
+// 막아야 하는 것은 과세 구분 금액이지 합계가 아니다. "소계"는 부분합이라 제외한다.
+const NOT_TOTAL =
+  /(받은금액|받은돈|거스름|거스름돈|잔돈|공급가액|부가세|면세물품|면세금액|과세물품|과세금액|과세계|소계|포인트|적립|잔액|할인전|정상가)/;
 
 /** 상호명 줄이 아닌 것 */
 const NOT_NAME =

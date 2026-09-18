@@ -29,12 +29,16 @@ export default function App() {
    * 백업 경고도 라이브 쿼리로 본다. 설정 탭에서 백업해도 배너가 바로 사라져야
    * 하는데, 한 번만 계산하면 그 화면을 다시 그릴 때까지 남아 있는다.
    */
-  const lastBackup = useLiveQuery(() => db.settings.get(LAST_BACKUP_KEY), []);
+  const lastBackup = useLiveQuery(
+    async () => ({ row: await db.settings.get(LAST_BACKUP_KEY), at: Date.now() }),
+    [],
+  );
   const nag =
     lastBackup === undefined
       ? false // 아직 읽는 중
-      : !lastBackup?.value ||
-        Date.now() - new Date(lastBackup.value).getTime() >= BACKUP_NAG_DAYS * 86_400_000;
+      : !lastBackup.row?.value ||
+        lastBackup.at - new Date(lastBackup.row.value).getTime() >=
+          BACKUP_NAG_DAYS * 86_400_000;
 
   if (!ready) {
     return (

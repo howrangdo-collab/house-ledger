@@ -106,6 +106,20 @@ def main():
     xl.DisplayAlerts = False
     wb = xl.Workbooks.Open(str(target.resolve()))
     try:
+        # 쓰기 전에 대상 시트가 2세대 정산 구조인지 먼저 다 확인한다.
+        # 2024년 1~8월은 원본 템플릿(N2='총 지출')이라 B20:K52의 의미가 다르다.
+        # 거기에 쓰면 엉뚱한 칸이 채워지고 수식이 어긋난다. CLAUDE.md 참조.
+        wrong = []
+        for m in months:
+            n2 = str(wb.Worksheets(f"{m}월").Range("N2").Value or "").strip()
+            if n2 != "은지네":
+                wrong.append(f"  {m}월: N2='{n2}' (2세대 정산 구조가 아님)")
+        if wrong:
+            print("2세대 정산 구조가 아닌 시트가 있어 중단합니다:")
+            print(chr(10).join(wrong))
+            print("원본 백업은 그대로 있습니다:", backup.name)
+            sys.exit(1)
+
         for m in months:
             ws = wb.Worksheets(f"{m}월")
             for hk, c0 in COLS.items():
